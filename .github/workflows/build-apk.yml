@@ -1,0 +1,131 @@
+name: Build and Release Sami APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Web & Android Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout Source Code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 3. Install Node Dependencies
+      - name: Install Node Dependencies
+        run: npm install --legacy-peer-deps
+
+      # 4. Build Web Application
+      - name: Build Web Application
+        run: npm run build
+
+      # 5. Sync Web Assets to Android
+      - name: Sync Web Distribution to Android Assets
+        run: |
+          mkdir -p app/src/main/assets/assets
+          cp -r dist/* app/src/main/assets/ 2>/dev/null || true
+          cp -r public/* app/src/main/assets/ 2>/dev/null || true
+
+      # 6. Setup Java 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # 7. Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses" || true
+
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          fi
+
+          if [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/tools/bin/sdkmanager" --licenses || true
+          fi
+
+      # 8. Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.6
+
+      # 9. Build Android Release APK ONLY
+      - name: Build Android Release APK
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper --gradle-version 8.6 || true
+          fi
+          chmod +x ./gradlew
+
+          echo "========================================"
+          echo "Building Sami Release APK"
+          echo "========================================"
+
+          ./gradlew :app:assembleRelease --stacktrace --no-daemon
+
+          echo "========================================"
+          echo "Checking Generated Release APK"
+          echo "========================================"
+
+          if [ ! -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            echo "ERROR: app-release.apk was not generated."
+            echo "Available APK files:"
+            find app/build/outputs/apk/ -type f -name "*.apk" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Release APK generated successfully:"
+          ls -lh app/build/outputs/apk/release/app-release.apk
+
+      # 10. Upload Release APK ONLY
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sami-Trading-Tracker-Release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 11. Publish Build Summary
+      - name: Publish Build Summary
+        if: always()
+        env:
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          echo "## Sami Android Release Build Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$BUILD_STATUS" = "success" ]; then
+            echo "### Build Status: SUCCESS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Build Status: FAILED" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build target: Android Release APK only" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Expected APK: app-release.apk" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact name: Sami-Trading-Tracker-Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Debug APK is not explicitly built or uploaded by this workflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web application build is included in the workflow." >> "$GITHUB_STEP_SUMMARY"

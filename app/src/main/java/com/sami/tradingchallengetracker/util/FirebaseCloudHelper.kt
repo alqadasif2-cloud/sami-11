@@ -19,7 +19,19 @@ object FirebaseCloudHelper {
         return firestoreInstance ?: synchronized(this) {
             firestoreInstance ?: run {
                 if (FirebaseApp.getApps(context).isEmpty()) {
-                    FirebaseApp.initializeApp(context)
+                    try {
+                        FirebaseApp.initializeApp(context)
+                    } catch (_: Exception) {
+                        try {
+                            val options = com.google.firebase.FirebaseOptions.Builder()
+                                .setProjectId("majestic-interface-ksmzh")
+                                .setApplicationId("com.sami.tradingchallengetracker")
+                                .setApiKey("AIzaSyB-fakeKeyPlaceholderForInit")
+                                .setStorageBucket("majestic-interface-ksmzh-media")
+                                .build()
+                            FirebaseApp.initializeApp(context, options)
+                        } catch (_: Exception) {}
+                    }
                 }
                 val db = FirebaseFirestore.getInstance()
                 val settings = FirebaseFirestoreSettings.Builder()

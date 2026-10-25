@@ -118,12 +118,9 @@ class MainActivity : ComponentActivity() {
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                initFcmToken()
             }
-        } else {
-            initFcmToken()
         }
+        initFcmToken()
 
         // 3. Process incoming notification deep link from launch intent
         processDeepLinkIntent(intent)
@@ -165,8 +162,12 @@ class MainActivity : ComponentActivity() {
     private fun processDeepLinkIntent(intent: Intent?) {
         if (intent == null) return
         val channelId = intent.getStringExtra("channelId") ?: ""
-        val partnerId = if (intent.hasExtra("partnerId")) intent.getIntExtra("partnerId", 0) else null
-        val chatType = intent.getStringExtra("chatType") ?: if (partnerId != null) "private" else "channel"
+        val partnerId = intent.getStringExtra("partnerId")?.toIntOrNull()
+            ?: if (intent.hasExtra("partnerId")) {
+                val p = intent.getIntExtra("partnerId", 0)
+                if (p > 0) p else null
+            } else null
+        val chatType = intent.getStringExtra("chatType") ?: if (partnerId != null && partnerId > 0) "private" else "channel"
         val messageId = intent.getStringExtra("messageId") ?: ""
         val senderName = intent.getStringExtra("senderName") ?: ""
 
@@ -210,6 +211,14 @@ class MainActivity : ComponentActivity() {
                             "if (typeof window !== 'undefined' && typeof window.registerAndroidFcmToken === 'function') { window.registerAndroidFcmToken('$token', 0, ''); }",
                             null
                         )
+                    }
+
+                    // If user was previously logged in, re-sync token immediately
+                    val savedUserId = SamiFirebaseMessagingService.getCurrentUserId(this@MainActivity)
+                    if (savedUserId > 0) {
+                        val savedUsername = getSharedPreferences(SamiFirebaseMessagingService.PREFS_NAME, Context.MODE_PRIVATE)
+                            .getString(SamiFirebaseMessagingService.KEY_CURRENT_USERNAME, "") ?: ""
+                        syncFcmTokenToFirestore(savedUserId, savedUsername)
                     }
                 } else {
                     android.util.Log.w("SamiFCM", "Failed to retrieve FCM token", task.exception)
@@ -271,6 +280,14 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 android.util.Log.w("SamiFCM", "Error syncing token: ${e.message}")
             }
+
+            // Sync with backend API via active WebView
+            activeWebView?.post {
+                activeWebView?.evaluateJavascript(
+                    "if (typeof fetch === 'function') { fetch('/api/fcm/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: '$token', userId: $userId, username: '$username', platform: 'android' }) }).catch(function(){}); }",
+                    null
+                )
+            }
         }
     }
 
@@ -317,6 +334,28 @@ class SamiAndroidBridge(
     fun syncUserSession(userId: Int, username: String) {
         SamiFirebaseMessagingService.saveCurrentSession(activity, userId, username)
         activity.syncFcmTokenToFirestore(userId, username)
+    }
+
+    @JavascriptInterface
+    fun syncUserSession(userId: String, username: String) {
+        val uid = userId.toIntOrNull() ?: 0
+        if (uid > 0) {
+            SamiFirebaseMessagingService.saveCurrentSession(activity, uid, username)
+            activity.syncFcmTokenToFirestore(uid, username)
+        }
+    }
+
+    @JavascriptInterface
+    fun unregisterFcmToken(userId: String) {
+        SamiFirebaseMessagingService.clearCurrentSession(activity)
+    }
+
+    @JavascriptInterface
+    fun registerFcmToken(token: String, userId: String, username: String) {
+        val uid = userId.toIntOrNull() ?: 0
+        if (uid > 0) {
+            activity.syncFcmTokenToFirestore(uid, username)
+        }
     }
 
     @JavascriptInterface
@@ -383,11 +422,11 @@ fun FullAppWebView(
                     }
                     WebView.setWebContentsDebuggingEnabled(true)
 
-                    // Add JavaScript Interface for FCM, Permissions, and Deep Linking
-                    addJavascriptInterface(
-                        SamiAndroidBridge(activity) { webViewInstance },
-                        "SamiBridge"
-                    )
+                    // Add JavaScript Interfaces for FCM, Permissions, and Deep Linking
+                    val bridge = SamiAndroidBridge(activity) { webViewInstance }
+                    addJavascriptInterface(bridge, "SamiBridge")
+                    addJavascriptInterface(bridge, "AndroidBridge")
+                    addJavascriptInterface(bridge, "Android")
 
                     val assetLoader = WebViewAssetLoader.Builder()
                         .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))

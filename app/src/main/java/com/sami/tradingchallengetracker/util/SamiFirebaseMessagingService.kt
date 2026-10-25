@@ -154,7 +154,10 @@ class SamiFirebaseMessagingService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("chatType", chatType)
             if (channelId.isNotEmpty()) putExtra("channelId", channelId)
-            if (partnerId != null && partnerId > 0) putExtra("partnerId", partnerId)
+            if (partnerId != null && partnerId > 0) {
+                putExtra("partnerId", partnerId)
+                putExtra("partnerIdStr", partnerId.toString())
+            }
             if (messageId.isNotEmpty()) putExtra("messageId", messageId)
             if (senderName.isNotEmpty()) putExtra("senderName", senderName)
         }
@@ -177,6 +180,7 @@ class SamiFirebaseMessagingService : FirebaseMessagingService() {
             .setSound(defaultSound)
             .setColor(0xFFF59E0B.toInt()) // Amber brand color
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(if (chatType == "private") NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
 
         val notificationId = if (messageId.isNotEmpty()) messageId.hashCode() else (System.currentTimeMillis() % 100000).toInt()

@@ -1,0 +1,6 @@
+{
+  "name": "Sami - Trading Challenge & Chat",
+  "description": "تطبيق Sami الاحترافي لإدارة ومتابعة رحلة التداول الشخصية لـ 150 محطة تداول مع القنوات والمحادثات المباشرة والتخزين السحابي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
